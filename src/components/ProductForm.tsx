@@ -24,12 +24,30 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
     category: '',
     quantity: 0,
     minQuantity: 5,
+    lotNumber: '',
+    expiryDate: '',
+    lastAuditDate: '',
   });
 
   const [suppliers, setSuppliers] = useState<SupplierContact[]>([]);
   const [loadingSuppliers, setLoadingSuppliers] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // States for the interactive alert threshold calculator helper
+  const [showThresholdHelper, setShowThresholdHelper] = useState(false);
+  const [dailyCons, setDailyCons] = useState<number | ''>('');
+  const [leadTime, setLeadTime] = useState<number | ''>('');
+  const [safetyMargin, setSafetyMargin] = useState<number | ''>('');
+
+  const applyCalculatedThreshold = () => {
+    const dc = Number(dailyCons) || 0;
+    const lt = Number(leadTime) || 0;
+    const sm = Number(safetyMargin) || 0;
+    const computed = Math.ceil((dc * lt) + sm);
+    setFormData(prev => ({ ...prev, minQuantity: Math.max(0, computed) }));
+    setShowThresholdHelper(false);
+  };
 
   const isSuperAdmin = userRights?.role === 'super_admin';
   
@@ -45,6 +63,9 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
         category: product.category,
         quantity: product.quantity,
         minQuantity: product.minQuantity,
+        lotNumber: product.lotNumber || '',
+        expiryDate: product.expiryDate || '',
+        lastAuditDate: product.lastAuditDate || '',
       });
 
       // Standard admins are not allowed to fetch supplier details, doing so will trigger permissions error
@@ -134,6 +155,9 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
         category: formData.category,
         quantity: Math.floor(formData.quantity),
         minQuantity: Math.floor(formData.minQuantity),
+        lotNumber: formData.lotNumber.trim() || null,
+        expiryDate: formData.expiryDate || null,
+        lastAuditDate: formData.lastAuditDate || null,
         createdAt: product ? product.createdAt : serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -243,8 +267,18 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
             </div>
 
             {/* Minimum Quantity Alert threshold */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700">Seuil d'Alerte de Rupture *</label>
+            <div className="space-y-1.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700">Seuil d'Alerte de Rupture *</label>
+                <button
+                  type="button"
+                  onClick={() => setShowThresholdHelper(!showThresholdHelper)}
+                  className="text-[10px] text-clinic-blue hover:underline font-semibold flex items-center gap-0.5"
+                  title="Calculer automatiquement selon la consommation clinique standard"
+                >
+                  <HelpCircle size={11} /> Calculateur
+                </button>
+              </div>
               <input
                 type="number"
                 min={0}
@@ -256,6 +290,80 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
               <p className="text-[10px] text-slate-400">Une alerte sera émise si le stock descend à ou sous ce seuil.</p>
             </div>
           </div>
+
+          {/* Expandable smart threshold mathematical calculator helper */}
+          {showThresholdHelper && (
+            <div className="p-4 bg-emerald-50/50 rounded-xl border border-clinic-green/10 text-xs space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wide">Méthode de Calcul Clinique (Seuil)</h4>
+                  <p className="text-[10px] text-slate-500">Sélectionnez la quantité idéale de sécurité pour éviter toute rupture.</p>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setShowThresholdHelper(false)}
+                  className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="bg-white border border-slate-200/60 p-2.5 rounded-lg font-mono text-[10px] text-clinic-blue">
+                <span className="font-bold">Formule :</span> (Conso/Jour × Délai Livraison) + Stock Sécurité
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-500 font-bold block leading-tight">Consommation/Jour</span>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="ex: 3"
+                    value={dailyCons}
+                    onChange={(e) => setDailyCons(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-500 font-bold block leading-tight">Délai Livraison (Jours)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="ex: 5"
+                    value={leadTime}
+                    onChange={(e) => setLeadTime(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-500 font-bold block leading-tight">Stock Sécurité</span>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="ex: 4"
+                    value={safetyMargin}
+                    onChange={(e) => setSafetyMargin(e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200/50">
+                <span className="text-[11px] font-semibold text-slate-700">
+                  Total calculé : <strong className="text-clinic-green">
+                    {Math.ceil((Number(dailyCons) || 0) * (Number(leadTime) || 0) + (Number(safetyMargin) || 0))} units
+                  </strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={applyCalculatedThreshold}
+                  className="bg-clinic-green hover:bg-opacity-90 text-white font-bold text-[10px] px-2.5 py-1 rounded transition cursor-pointer"
+                >
+                  Appliquer le Seuil
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Current Stock Quantity */}
           <div className="space-y-1.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
@@ -286,6 +394,47 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
               >
                 +
               </button>
+            </div>
+          </div>
+
+          {/* Clinical Safety & Traceability details */}
+          <div className="space-y-3 bg-emerald-50/20 p-4 rounded-xl border border-emerald-500/10">
+            <div>
+              <h4 className="text-xs font-bold text-emerald-800 flex items-center gap-1 uppercase tracking-wider">
+                🔬 Traçabilité & Sécurité Clinique
+              </h4>
+              <p className="text-[10px] text-slate-500">Données optionnelles de contrôle de conformité médicale.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Numéro de Lot</label>
+                <input
+                  type="text"
+                  placeholder="Ex: LOT-2026A"
+                  value={formData.lotNumber}
+                  onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Date Péremption</label>
+                <input
+                  type="date"
+                  value={formData.expiryDate}
+                  onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Dernier Inventaire</label>
+                <input
+                  type="date"
+                  value={formData.lastAuditDate}
+                  onChange={(e) => setFormData({ ...formData, lastAuditDate: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 

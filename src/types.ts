@@ -31,6 +31,9 @@ export interface Product {
   category: string; // The category name/id this product belongs to
   quantity: number;
   minQuantity: number;
+  lotNumber?: string;
+  expiryDate?: string; // YYYY-MM-DD
+  lastAuditDate?: string; // YYYY-MM-DD
   createdAt: any;
   updatedAt: any;
 }

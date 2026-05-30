@@ -62,6 +62,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
       category: 'Matériel Médical',
       quantity: 145,
       minQuantity: 40,
+      lotNumber: 'LOT-520M',
+      expiryDate: '2028-12-15',
+      lastAuditDate: '2026-05-20',
       suppliers: [
         { name: 'PharmaDistri SA', phone: '01.45.67.89.10' },
         { name: 'HospitAll Group', phone: '02.99.88.77.66' }
@@ -73,6 +76,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
       category: 'Pharmacie & Vaccins',
       quantity: 8,
       minQuantity: 25, // Under-stock
+      lotNumber: 'LOT-V92B',
+      expiryDate: '2026-04-10', // EXPIRED (Prior to May 2026)
+      lastAuditDate: '2026-04-09',
       suppliers: [
         { name: 'Laboratoires BioCare', phone: '04.72.33.44.55' }
       ]
@@ -83,6 +89,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
       category: 'Matériel Médical',
       quantity: 420,
       minQuantity: 100,
+      lotNumber: 'LOT-998A',
+      expiryDate: '2029-01-30',
+      lastAuditDate: '2026-05-18',
       suppliers: [
         { name: 'GantMedic International', phone: '05.56.78.12.34' }
       ]
@@ -93,6 +102,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
       category: 'Matériel Médical',
       quantity: 80,
       minQuantity: 150, // Under-stock
+      lotNumber: 'LOT-C33E',
+      expiryDate: '2029-06-20',
+      lastAuditDate: '2026-05-10',
       suppliers: [
         { name: 'PharmaDistri SA', phone: '01.45.67.89.10' }
       ]
@@ -103,6 +115,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
       category: 'Bloc Opératoire',
       quantity: 35,
       minQuantity: 10,
+      lotNumber: 'LOT-350X',
+      expiryDate: '2026-06-25', // EXPIRING SOON (~25 days left in June 2026)
+      lastAuditDate: '2026-05-25',
       suppliers: [
         { name: 'SpeciaMed Distrib', phone: '03.88.99.00.11' }
       ]
@@ -113,26 +128,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
       category: 'Entretien & Hygiène',
       quantity: 3,
       minQuantity: 6, // Under-stock
-      suppliers: [
-        { name: 'ClinClean Pro', phone: '08.00.12.34.56' }
-      ]
-    },
-    {
-      id: 'test-prod-7',
-      name: 'Champs opératoires stériles bleus 75x90',
-      category: 'Bloc Opératoire',
-      quantity: 60,
-      minQuantity: 20,
-      suppliers: [
-        { name: 'SpeciaMed Distrib', phone: '03.88.99.00.11' }
-      ]
-    },
-    {
-      id: 'test-prod-8',
-      name: 'Gel hydroalcoolique Aniosgel 1L',
-      category: 'Entretien & Hygiène',
-      quantity: 45,
-      minQuantity: 12,
+      lotNumber: 'LOT-H88X',
+      expiryDate: '2027-10-15',
+      lastAuditDate: '2026-05-22',
       suppliers: [
         { name: 'ClinClean Pro', phone: '08.00.12.34.56' }
       ]
@@ -187,6 +185,9 @@ export default function TestDataManager({ onClose }: TestDataManagerProps) {
           category: prod.category,
           quantity: prod.quantity,
           minQuantity: prod.minQuantity,
+          lotNumber: prod.lotNumber || null,
+          expiryDate: prod.expiryDate || null,
+          lastAuditDate: prod.lastAuditDate || null,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });

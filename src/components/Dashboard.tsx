@@ -39,7 +39,9 @@ import {
   Sparkles,
   Phone,
   Copy,
-  Check
+  Check,
+  Download,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -61,7 +63,7 @@ export default function Dashboard() {
   // Filtering & Search
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [stockFilter, setStockFilter] = useState<'all' | 'alert' | 'ok'>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'alert' | 'ok' | 'expired' | 'expiring'>('all');
   const [suppliersList, setSuppliersList] = useState<ProductSupplier[]>([]);
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState<string>('all');
 
@@ -122,6 +124,74 @@ export default function Dashboard() {
   const [selectedSupplierProduct, setSelectedSupplierProduct] = useState<Product | null>(null);
   const [showMovementsModal, setShowMovementsModal] = useState(false);
   const [showTestDataModal, setShowTestDataModal] = useState(false);
+
+  // Additional smart features: CSV export & order draft compiler
+  const [showOrderDraftModal, setShowOrderDraftModal] = useState(false);
+  const [copiedDraftText, setCopiedDraftText] = useState(false);
+
+  const handleExportCSV = () => {
+    const headers = ['Nom', 'Secteur (Catégorie)', 'Stock Actuel', 'Seuil d\'Alerte', 'Statut', 'Numéro de Lot', 'Date Expiration', 'Dernier Inventaire', 'Suivi de Commande'];
+    const rows = filteredProducts.map(prod => {
+      const isLow = prod.quantity <= prod.minQuantity;
+      const status = prod.quantity === 0 ? 'Rupture Totale' : (isLow ? 'Alerte Stock Bas' : 'Stock Optimal');
+      const diff = isLow ? (prod.minQuantity * 2) - prod.quantity : 0;
+      const recommendation = isLow ? `Commander min. ${diff} unites` : 'N/A';
+      return [
+        `"${prod.name.replace(/"/g, '""')}"`,
+        `"${prod.category.replace(/"/g, '""')}"`,
+        prod.quantity,
+        prod.minQuantity,
+        `"${status}"`,
+        `"${(prod.lotNumber || 'N/A').replace(/"/g, '""')}"`,
+        `"${prod.expiryDate || 'N/A'}"`,
+        `"${prod.lastAuditDate || 'N/A'}"`,
+        `"${recommendation}"`
+      ];
+    });
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const todayStr = new Date().toISOString().substring(0, 10);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Stock_Clinique_Export_${todayStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const getReplenishmentText = () => {
+    let text = `=======================================================\n`;
+    text    += `   BON DE COMMANDE DE REAPPROVISIONNEMENT CLINIQUE   \n`;
+    text    += `   Genere le : ${new Date().toLocaleDateString('fr-FR')} a ${new Date().toLocaleTimeString('fr-FR')}\n`;
+    text    += `=======================================================\n\n`;
+    text    += `Veuillez trouver ci-dessous la liste des materiels et fournitures sous seuil d'alerte, classes par secteur :\n\n`;
+
+    lowStockProducts.forEach((prod, idx) => {
+      const isCritical = prod.quantity === 0;
+      const needed = Math.max(1, (prod.minQuantity * 2) - prod.quantity);
+      const prodSup = suppliersList.find(s => s.productId === prod.id);
+      const supplierStr = prodSup && prodSup.contacts.length > 0
+        ? prodSup.contacts.map(c => `${c.name} (${c.phone})`).join(', ')
+        : 'Aucun fournisseur referent enregistre';
+
+      text += `${idx + 1}. [${prod.category}] ${prod.name}\n`;
+      text += `   - Etat : ${isCritical ? 'CRITIQUE / RUPTURE TOTALE' : 'STOCK INSUFFISANT'}\n`;
+      text += `   - Stock Actuel : ${prod.quantity} (Seuil d'alerte : ${prod.minQuantity})\n`;
+      text += `   - Quantite suggeree pour commande : ${needed} unites\n`;
+      text += `   - Contacts Fournisseurs : ${supplierStr}\n\n`;
+    });
+
+    text += `-------------------------------------------------------\n`;
+    text += `Rapport genere par l'Administrateur de Roster & Stock Clinique.\n`;
+    return text;
+  };
+
+  const handleCopyDraftText = () => {
+    navigator.clipboard.writeText(getReplenishmentText());
+    setCopiedDraftText(true);
+    setTimeout(() => setCopiedDraftText(false), 2000);
+  };
 
   const [loading, setLoading] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -260,6 +330,21 @@ export default function Dashboard() {
 
   // Filter computations
   const lowStockProducts = products.filter(p => p.quantity <= p.minQuantity);
+  
+  const todayUnix = new Date().setHours(0, 0, 0, 0);
+
+  const expiredProducts = products.filter(p => {
+    if (!p.expiryDate) return false;
+    const expUnix = new Date(p.expiryDate).getTime();
+    return expUnix <= todayUnix;
+  });
+
+  const expiringSoonProducts = products.filter(p => {
+    if (!p.expiryDate) return false;
+    const expUnix = new Date(p.expiryDate).getTime();
+    const daysLeft = Math.ceil((expUnix - todayUnix) / (1000 * 60 * 60 * 24));
+    return daysLeft > 0 && daysLeft <= 45;
+  });
 
   // Extract unique supplier names across all products (Super Admin only Check)
   const uniqueSuppliers = Array.from(
@@ -274,7 +359,8 @@ export default function Dashboard() {
 
     // Search match
     const searchMatch = prod.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        prod.category.toLowerCase().includes(searchTerm.toLowerCase());
+                        prod.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        (prod.lotNumber && prod.lotNumber.toLowerCase().includes(searchTerm.toLowerCase()));
 
     // Status filter match
     let statusMatch = true;
@@ -282,6 +368,21 @@ export default function Dashboard() {
       statusMatch = prod.quantity <= prod.minQuantity;
     } else if (stockFilter === 'ok') {
       statusMatch = prod.quantity > prod.minQuantity;
+    } else if (stockFilter === 'expired') {
+      if (!prod.expiryDate) {
+        statusMatch = false;
+      } else {
+        const expUnix = new Date(prod.expiryDate).getTime();
+        statusMatch = expUnix <= todayUnix;
+      }
+    } else if (stockFilter === 'expiring') {
+      if (!prod.expiryDate) {
+        statusMatch = false;
+      } else {
+        const expUnix = new Date(prod.expiryDate).getTime();
+        const daysLeft = Math.ceil((expUnix - todayUnix) / (1000 * 60 * 60 * 24));
+        statusMatch = daysLeft > 0 && daysLeft <= 45;
+      }
     }
 
     // Supplier filter match (Super Admin exclusive)
@@ -484,7 +585,7 @@ export default function Dashboard() {
         </div>
 
         {/* Dashboard statistics KPI boxes */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-[#eef5fc] text-clinic-blue rounded-xl">
               <ClipboardList size={22} />
@@ -500,7 +601,7 @@ export default function Dashboard() {
               <AlertTriangle size={22} />
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wide font-semibold block">Articles en Rupture / Alerte</span>
+              <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wide font-semibold block">Articles en Rupture</span>
               <span className={`text-2xl font-bold ${lowStockProducts.length > 0 ? 'text-clinic-accent' : 'text-slate-800'}`}>
                 {lowStockProducts.length}
               </span>
@@ -516,6 +617,25 @@ export default function Dashboard() {
               <span className="text-2xl font-bold text-slate-800">{categories.length}</span>
             </div>
           </div>
+
+          <div className={`p-4 rounded-xl border transition shadow-sm flex items-center gap-4 ${(expiredProducts.length > 0 || expiringSoonProducts.length > 0) ? 'bg-rose-50/40 border-rose-200' : 'bg-white border-slate-200/80'}`}>
+            <div className={`p-3 rounded-xl ${(expiredProducts.length > 0) ? 'bg-rose-100 text-rose-600' : (expiringSoonProducts.length > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500')}`}>
+              <ShieldAlert size={22} />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wide font-semibold block">Alertes Péremption</span>
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-2xl font-bold ${(expiredProducts.length > 0) ? 'text-rose-600 font-extrabold' : (expiringSoonProducts.length > 0 ? 'text-amber-600' : 'text-slate-800')}`}>
+                  {expiredProducts.length + expiringSoonProducts.length}
+                </span>
+                {(expiredProducts.length > 0 || expiringSoonProducts.length > 0) && (
+                  <span className="text-[9px] font-semibold text-slate-500 font-mono">
+                    ({expiredProducts.length} exp. / {expiringSoonProducts.length} pr.)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Automatic alerts banner (Lower stock detection) */}
@@ -523,29 +643,40 @@ export default function Dashboard() {
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-4 bg-rose-50 border border-rose-100 rounded-xl flex flex-col md:flex-row gap-3 items-start md:items-center justify-between"
+            className="p-4 bg-rose-50 border border-rose-200/40 rounded-xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between"
           >
-            <div className="flex gap-2 items-start">
+            <div className="flex gap-2.5 items-start">
               <ShieldAlert className="text-rose-500 shrink-0 mt-0.5" size={18} />
               <div>
                 <h4 className="font-bold text-rose-800 text-xs uppercase tracking-wider">Alerte automatique de réapprovisionnement ({lowStockProducts.length})</h4>
                 <p className="text-[11px] text-rose-700/80 mt-0.5 leading-normal">
-                  Certains articles ont atteint ou sont descendus sous leur seuil de rupture par rapport au paramétrage fixé. Réapprovisionnez-les ou contactez les fournisseurs.
+                  Certains articles ont atteint ou sont descendus sous leur seuil de rupture par rapport au paramétrage fixé.
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto w-full md:w-auto">
-              {lowStockProducts.slice(0, 3).map(prod => (
-                <div key={prod.id} className="text-[9px] bg-white border border-rose-200/80 text-rose-700 font-semibold py-1 px-2.5 rounded-lg flex items-center gap-1.5 shrink-0">
-                  <span className="truncate max-w-[120px]">{prod.name}</span>
-                  <span className="font-bold text-[10px] bg-rose-100 px-1 rounded font-mono">{prod.quantity} / {prod.minQuantity}</span>
-                </div>
-              ))}
-              {lowStockProducts.length > 3 && (
-                <span className="text-[9px] text-slate-500 font-bold bg-white/70 py-1 px-2.5 rounded-lg shrink-0 border border-slate-200">
-                  + {lowStockProducts.length - 3} autres
-                </span>
-              )}
+            
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto shrink-0">
+              <div className="flex flex-wrap gap-1 max-h-[80px] overflow-y-auto">
+                {lowStockProducts.slice(0, 2).map(prod => (
+                  <div key={prod.id} className="text-[9px] bg-white border border-rose-200/80 text-rose-700 font-semibold py-1 px-2.5 rounded-lg flex items-center gap-1.5 shrink-0">
+                    <span className="truncate max-w-[80px]">{prod.name}</span>
+                    <span className="font-bold text-[10px] bg-rose-100 px-1 rounded font-mono">{prod.quantity} / {prod.minQuantity}</span>
+                  </div>
+                ))}
+                {lowStockProducts.length > 2 && (
+                  <span className="text-[9px] text-slate-500 font-bold bg-white/70 py-1 px-2.5 rounded-lg shrink-0 border border-slate-200">
+                    + {lowStockProducts.length - 2} autres
+                  </span>
+                )}
+              </div>
+
+              <button
+                onClick={() => setShowOrderDraftModal(true)}
+                className="bg-rose-900 hover:bg-rose-950 text-white font-bold text-xs py-2 px-3.5 rounded-xl flex items-center justify-center gap-1.5 shadow-sm shadow-rose-900/10 cursor-pointer transition select-none"
+                title="Compiler un bon de commande de réapprovisionnement prêt pour impression/copie"
+              >
+                <Sparkles size={13} /> Compiler Bon de Commande
+              </button>
             </div>
           </motion.div>
         )}
@@ -722,32 +853,54 @@ export default function Dashboard() {
                 onClick={() => setStockFilter('all')}
                 className={`py-1.5 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition ${stockFilter === 'all' ? 'bg-clinic-blue text-white shadow-sm' : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'}`}
               >
-                Tous articles
+                Tous
               </button>
               <button
                 onClick={() => setStockFilter('alert')}
                 className={`py-1.5 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${stockFilter === 'alert' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white hover:bg-amber-50 text-amber-600 border border-slate-200'}`}
               >
-                Stock insuffisant ({lowStockProducts.length})
+                Ruptures ({lowStockProducts.length})
               </button>
               <button
                 onClick={() => setStockFilter('ok')}
                 className={`py-1.5 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition ${stockFilter === 'ok' ? 'bg-clinic-green text-white shadow-sm' : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'}`}
               >
-                Assez de stock
+                En stock
+              </button>
+              <button
+                onClick={() => setStockFilter('expired')}
+                className={`py-1.5 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${stockFilter === 'expired' ? 'bg-rose-700 text-white shadow-sm font-bold' : 'bg-white hover:bg-rose-50 text-rose-700 border border-slate-200'}`}
+              >
+                Périmés ({expiredProducts.length})
+              </button>
+              <button
+                onClick={() => setStockFilter('expiring')}
+                className={`py-1.5 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${stockFilter === 'expiring' ? 'bg-amber-600 text-white shadow-sm font-bold' : 'bg-white hover:bg-amber-50 text-amber-700 border border-slate-200'}`}
+              >
+                ⚠️ Péremption Proche ({expiringSoonProducts.length})
               </button>
             </div>
 
-            {/* Smart filter search match input */}
-            <div className="relative w-full sm:w-60">
-              <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
-              <input
-                type="text"
-                placeholder="Rechercher un matériel..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full text-xs bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2 focus:ring-1 focus:ring-clinic-blue focus:outline-none"
-              />
+            {/* Smart filter search match input and CSV Export */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={handleExportCSV}
+                className="py-1.5 px-3.5 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shrink-0"
+                title="Exporter la liste actuelle filtrée sous format Excel / CSV"
+              >
+                <Download size={13} className="text-slate-500" />
+                <span>Exporter (.csv)</span>
+              </button>
+              <div className="relative w-full sm:w-60">
+                <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="Rechercher un matériel..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full text-xs bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2 focus:ring-1 focus:ring-clinic-blue focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 
@@ -839,8 +992,44 @@ export default function Dashboard() {
                         id={`row-${prod.id}`}
                       >
                         {/* Name */}
-                        <td className="py-3.5 px-5 font-bold text-slate-800 tracking-tight">
-                          <span className="block max-w-[180px] md:max-w-xs truncate">{prod.name}</span>
+                        <td className="py-3.5 px-5 text-slate-800 tracking-tight">
+                          <div className="space-y-1">
+                            <span className="block font-bold max-w-[180px] md:max-w-xs truncate">{prod.name}</span>
+                            
+                            {/* Clinical Tracking Badges if present */}
+                            {(prod.lotNumber || prod.expiryDate || prod.lastAuditDate) && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[9px] mt-0.5">
+                                {prod.lotNumber && (
+                                  <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium" title="Numéro de Lot">
+                                    Lot: {prod.lotNumber}
+                                  </span>
+                                )}
+                                
+                                {prod.expiryDate && (() => {
+                                  const daysLeft = Math.ceil((new Date(prod.expiryDate).getTime() - todayUnix) / (1000 * 60 * 60 * 24));
+                                  const isExpired = daysLeft <= 0;
+                                  const isWarning = daysLeft > 0 && daysLeft <= 45;
+                                  let badgeStyle = "bg-emerald-50 text-emerald-600 border border-emerald-100/30";
+                                  if (isExpired) {
+                                    badgeStyle = "bg-rose-50 text-rose-600 border border-rose-100 font-bold animate-pulse";
+                                  } else if (isWarning) {
+                                    badgeStyle = "bg-amber-50 text-amber-600 border border-amber-100 font-bold";
+                                  }
+                                  return (
+                                    <span className={`px-1.5 py-0.5 rounded flex items-center gap-0.5 ${badgeStyle}`} title={`Date de péremption clinique : ${prod.expiryDate}`}>
+                                      ⌛ {isExpired ? "EXPIRÉ" : (isWarning ? `Périme dans ${daysLeft} j` : `Exp: ${prod.expiryDate}`)}
+                                    </span>
+                                  );
+                                })()}
+
+                                {prod.lastAuditDate && (
+                                  <span className="bg-slate-100/60 text-slate-500 px-1.5 py-0.5 rounded" title={`Dernière vérification physique d'inventaire sur l'étagère de la clinique : ${prod.lastAuditDate}`}>
+                                    ✓ Vérif: {prod.lastAuditDate}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </td>
 
                         {/* Category */}
@@ -1012,6 +1201,105 @@ export default function Dashboard() {
           <TestDataManager 
             onClose={() => setShowTestDataModal(false)}
           />
+        )}
+
+        {/* Replenishment Purchase Order Draft Modal */}
+        {showOrderDraftModal && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-xl border border-slate-100 flex flex-col max-h-[90vh]"
+            >
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-2xl">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-rose-50 text-rose-700 rounded-lg">
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider">Bon de Commande Automatique</h3>
+                    <p className="text-[10px] text-slate-400">Synthèse d'achat générée selon les alertes de rupture</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowOrderDraftModal(false)}
+                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 p-1.5 rounded-lg transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4 flex-1">
+                <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-[11px] text-indigo-700 leading-relaxed">
+                  Cette interface rassemble tous les articles sous le seuil critique de rupture. Elle estime les besoins d'approvisionnement nécessaires pour revenir à un stock idéal et associe les contacts des fournisseurs enregistrés.
+                </div>
+
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Synthese des articles ({lowStockProducts.length})</h4>
+                  {lowStockProducts.map(prod => {
+                    const diff = Math.max(1, (prod.minQuantity * 2) - prod.quantity);
+                    const prodSup = suppliersList.find(s => s.productId === prod.id);
+                    return (
+                      <div key={prod.id} className="p-2.5 border border-slate-150 rounded-xl bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-slate-800 text-[12px]">{prod.name}</span>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+                            <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[9.5px] font-semibold">{prod.category}</span>
+                            <span>Stock actuel: <strong className="text-rose-600">{prod.quantity}</strong> / {prod.minQuantity} (seuil)</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[11px] block text-slate-500 font-medium">Recommande :</span>
+                          <span className="text-xs font-bold text-clinic-green bg-emerald-50 px-2 py-0.5 rounded">+ {diff} unites</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide">Texte du message de commande compile</label>
+                    <button
+                      onClick={handleCopyDraftText}
+                      className="text-[11px] text-clinic-blue hover:underline font-bold flex items-center gap-1"
+                    >
+                      {copiedDraftText ? <Check size={11} className="text-clinic-green" /> : <Copy size={11} />}
+                      {copiedDraftText ? "Copie !" : "Copier le texte"}
+                    </button>
+                  </div>
+                  <textarea
+                    readOnly
+                    value={getReplenishmentText()}
+                    className="w-full h-44 bg-slate-900 text-emerald-400 font-mono text-[10.5px] rounded-xl p-3 border border-slate-800 focus:outline-none focus:ring-1 focus:ring-clinic-blue resize-none scrollbar-thin"
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2 rounded-b-2xl">
+                <button
+                  onClick={() => setShowOrderDraftModal(false)}
+                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition cursor-pointer"
+                >
+                  Fermer
+                </button>
+                <button
+                  onClick={() => {
+                    const printWindow = window.open('', '_blank');
+                    if (printWindow) {
+                      printWindow.document.write(`<pre style="font-family: monospace; font-size: 13px; padding: 20px;">${getReplenishmentText()}</pre>`);
+                      printWindow.document.close();
+                      printWindow.print();
+                    }
+                  }}
+                  className="px-4 py-2 bg-clinic-blue hover:bg-opacity-95 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Imprimer le rapport
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
