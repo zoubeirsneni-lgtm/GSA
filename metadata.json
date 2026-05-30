@@ -1,0 +1,6 @@
+{
+  "name": "Gestion de Stock Clinique en Temps Réel",
+  "description": "Application de gestion de stock en temps réel pour clinique avec alertes de rupture, gestion des droits par catégories et confidentialité des fournisseurs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

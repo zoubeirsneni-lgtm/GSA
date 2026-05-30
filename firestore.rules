@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "zoubeirsneni@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "super_admin")
+      );
+    }
+
+    function hasPermission(category) {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        category in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Entity structure validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'permissions', 'createdAt']) &&
+             data.keys().size() == 5 &&
+             data.uid is string && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() <= 150 &&
+             (data.role == 'super_admin' || data.role == 'admin') &&
+             data.permissions is list && data.permissions.size() <= 20 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'name', 'createdAt']) &&
+             data.keys().size() == 3 &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 100 && data.name.size() > 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'name', 'category', 'quantity', 'minQuantity', 'createdAt', 'updatedAt']) &&
+             data.keys().size() == 7 &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 150 && data.name.size() > 0 &&
+             data.category is string && data.category.size() <= 128 && data.category.size() > 0 &&
+             data.quantity is int && data.quantity >= 0 &&
+             data.minQuantity is int && data.minQuantity >= 0 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidSupplier(data) {
+      return data.keys().hasAll(['productId', 'contacts', 'updatedAt']) &&
+             data.keys().size() == 3 &&
+             data.productId is string && data.productId.size() <= 128 &&
+             data.contacts is list && data.contacts.size() <= 20 &&
+             data.updatedAt is timestamp;
+    }
+
+    // Rules for Category collection
+    match /categories/{categoryId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSuperAdmin() && isValidCategory(incoming()) && incoming().createdAt == request.time && isValidId(categoryId);
+      allow update: if isSuperAdmin() && isValidCategory(incoming()) && incoming().createdAt == existing().createdAt && isValidId(categoryId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Rules for Product collection
+    match /products/{productId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidProduct(incoming()) && 
+                    hasPermission(incoming().category) &&
+                    incoming().createdAt == request.time && 
+                    incoming().updatedAt == request.time && 
+                    isValidId(productId);
+      
+      allow update: if isSignedIn() && isValidProduct(incoming()) &&
+                    hasPermission(existing().category) &&
+                    hasPermission(incoming().category) &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time &&
+                    isValidId(productId);
+                    
+      allow delete: if isSignedIn() && hasPermission(existing().category);
+    }
+
+    // Rules for Supplier collection (Super admin read and write only)
+    match /suppliers/{productId} {
+      allow get: if isSuperAdmin() && isValidId(productId);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin() && isValidSupplier(incoming()) && incoming().updatedAt == request.time && isValidId(productId);
+      allow update: if isSuperAdmin() && isValidSupplier(incoming()) && incoming().updatedAt == request.time && isValidId(productId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Rules for Users / Admins collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin()) && isValidId(userId);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin() && isValidUser(incoming()) && incoming().createdAt == request.time && isValidId(userId);
+      allow update: if isSuperAdmin() && isValidUser(incoming()) && incoming().createdAt == existing().createdAt && isValidId(userId);
+      allow delete: if isSuperAdmin();
+    }
+  }
+}
