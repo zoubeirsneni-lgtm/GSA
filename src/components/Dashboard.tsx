@@ -12,10 +12,11 @@ import {
   deleteDoc, 
   serverTimestamp, 
   query, 
-  orderBy 
+  orderBy,
+  limit 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { Product, Category, ProductSupplier } from '../types';
+import { Product, Category, ProductSupplier, StockMovement } from '../types';
 import { useFirebase } from './FirebaseProvider';
 import { 
   Plus, 
@@ -41,7 +42,8 @@ import {
   Copy,
   Check,
   Download,
-  FileText
+  FileText,
+  ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -52,6 +54,8 @@ import SupplierModal from './SupplierModal';
 import StockChart from './StockChart';
 import StockMovementLogModal from './StockMovementLogModal';
 import TestDataManager from './TestDataManager';
+import InventoryAuditModal from './InventoryAuditModal';
+import StockAnalyticsModal from './StockAnalyticsModal';
 
 export default function Dashboard() {
   const { user, userRights, logout } = useFirebase();
@@ -59,6 +63,7 @@ export default function Dashboard() {
   // Collections state
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
   
   // Filtering & Search
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -124,6 +129,8 @@ export default function Dashboard() {
   const [selectedSupplierProduct, setSelectedSupplierProduct] = useState<Product | null>(null);
   const [showMovementsModal, setShowMovementsModal] = useState(false);
   const [showTestDataModal, setShowTestDataModal] = useState(false);
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
 
   // Additional smart features: CSV export & order draft compiler
   const [showOrderDraftModal, setShowOrderDraftModal] = useState(false);
@@ -212,6 +219,22 @@ export default function Dashboard() {
     });
 
     return () => unsubscribeCats();
+  }, []);
+
+  // Real-time synchronization for Stock Movements (top 300)
+  useEffect(() => {
+    const movementsQuery = query(collection(db, 'stock_movements'), orderBy('createdAt', 'desc'), limit(300));
+    const unsubscribeMovements = onSnapshot(movementsQuery, (snapshot) => {
+      const logs: StockMovement[] = [];
+      snapshot.forEach(doc => {
+        logs.push({ id: doc.id, ...doc.data() } as StockMovement);
+      });
+      setMovements(logs);
+    }, (error) => {
+      console.error("Error backing up movements:", error);
+    });
+
+    return () => unsubscribeMovements();
   }, []);
 
   // Real-time synchronization for Products
@@ -501,6 +524,32 @@ export default function Dashboard() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Audits & Analytics dedicated modules block */}
+            <div className="pt-2 border-t border-slate-800/80">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-2 px-1">Audits & Analytics</span>
+              <div className="space-y-1">
+                {/* Physical inventory control */}
+                <button
+                  onClick={() => { setShowAuditModal(true); setIsMobileSidebarOpen(false); }}
+                  className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-[#cee2f1] hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
+                  id="open-physical-audit"
+                >
+                  <ClipboardCheck size={14} className="text-clinic-green" />
+                  <span>Inventaire de Garde</span>
+                </button>
+
+                {/* Algorithmic analytics predictions */}
+                <button
+                  onClick={() => { setShowAnalyticsModal(true); setIsMobileSidebarOpen(false); }}
+                  className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-[#cee2f1] hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
+                  id="open-stock-analytics"
+                >
+                  <TrendingDown size={14} className="text-clinic-blue animate-pulse" />
+                  <span>Analytics & Rotation</span>
+                </button>
               </div>
             </div>
 
@@ -1202,6 +1251,28 @@ export default function Dashboard() {
             onClose={() => setShowTestDataModal(false)}
           />
         )}
+
+        {/* Physical Inventory Audit Control Modal */}
+        {showAuditModal && (
+          <InventoryAuditModal
+            categories={categories}
+            products={products}
+            userRights={userRights}
+            userEmail={user?.email || 'Visiteur'}
+            onClose={() => setShowAuditModal(false)}
+          />
+        )}
+
+        {/* Algorithmic Stock Analytics Modal */}
+        {showAnalyticsModal && (
+          <StockAnalyticsModal
+            products={products}
+            categories={categories}
+            movements={movements}
+            onClose={() => setShowAnalyticsModal(false)}
+          />
+        )}
+
 
         {/* Replenishment Purchase Order Draft Modal */}
         {showOrderDraftModal && (

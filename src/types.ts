@@ -61,3 +61,21 @@ export interface StockMovement {
   createdAt: any; // Firestore timestamp
 }
 
+export interface InventoryAuditItem {
+  productId: string;
+  productName: string;
+  category: string;
+  theoreticalQuantity: number;
+  physicalQuantity: number;
+  discrepancy: number; // physical - theoretical
+}
+
+export interface InventoryAuditSession {
+  id: string;
+  userEmail: string;
+  createdAt: any; // Firestore timestamp
+  items: InventoryAuditItem[];
+  comment: string;
+  status: 'validated' | 'draft';
+}
+
