@@ -47,6 +47,10 @@
           "type": "string",
           "format": "date-time",
           "description": "Creation timestamp."
+        },
+        "staff": {
+          "type": "array",
+          "description": "Optional list of dynamic personnel members with name, role, and phone for this area."
         }
       },
       "required": ["id", "name", "createdAt"]
@@ -109,6 +113,52 @@
         }
       },
       "required": ["productId", "contacts", "updatedAt"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Historical audit log of stock level adjustments, creations, and deletions.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Movement document ID."
+        },
+        "productId": {
+          "type": "string",
+          "description": "Product document ID."
+        },
+        "productName": {
+          "type": "string",
+          "description": "Name of the product."
+        },
+        "category": {
+          "type": "string",
+          "description": "Category of the product."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["creation", "adjustment", "deletion"],
+          "description": "Operation type."
+        },
+        "difference": {
+          "type": "number",
+          "description": "The difference applied (+ or - changes, or positive initial fill)."
+        },
+        "finalQuantity": {
+          "type": "number",
+          "description": "Ending stock recorded after adjustment."
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email of the admin user performing the change."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Time the event was written."
+        }
+      },
+      "required": ["id", "productId", "productName", "category", "type", "difference", "finalQuantity", "userEmail", "createdAt"]
     }
   },
   "firestore": {
@@ -127,6 +177,10 @@
     "/suppliers/{productId}": {
       "schema": "Supplier",
       "description": "Locked collection containing supplier phone numbers. Visible only to super_admin roles."
+    },
+    "/stock_movements/{movementId}": {
+      "schema": "StockMovement",
+      "description": "Historical logs of every product change, read-only restricted to super_admin roles."
     }
   }
 }

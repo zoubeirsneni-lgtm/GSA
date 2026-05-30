@@ -18,7 +18,7 @@ interface ProductFormProps {
 }
 
 export default function ProductForm({ product, categories, onClose, onSuccess }: ProductFormProps) {
-  const { userRights } = useFirebase();
+  const { user, userRights } = useFirebase();
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -140,6 +140,24 @@ export default function ProductForm({ product, categories, onClose, onSuccess }:
 
       // Create or Update Product document
       await setDoc(productRef, productPayload);
+
+      // Write Stock Movement Log
+      const diff = product ? Math.floor(formData.quantity) - product.quantity : Math.floor(formData.quantity);
+      if (!product || diff !== 0) {
+        const movementId = 'move-' + Math.random().toString(36).substring(2, 11);
+        const movementRef = doc(db, 'stock_movements', movementId);
+        await setDoc(movementRef, {
+          id: movementId,
+          productId: productId,
+          productName: formData.name.trim(),
+          category: formData.category,
+          type: product ? 'adjustment' : 'creation',
+          difference: diff,
+          finalQuantity: Math.floor(formData.quantity),
+          userEmail: user?.email || 'Inconnu',
+          createdAt: serverTimestamp(),
+        });
+      }
 
       // Save supplier isolation details only if current user is Super Admin
       if (isSuperAdmin) {

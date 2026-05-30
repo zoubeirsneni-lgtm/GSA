@@ -15,7 +15,7 @@ import {
   orderBy 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { Product, Category } from '../types';
+import { Product, Category, ProductSupplier } from '../types';
 import { useFirebase } from './FirebaseProvider';
 import { 
   Plus, 
@@ -34,7 +34,12 @@ import {
   CheckCircle2, 
   PhoneCall,
   Menu,
-  X
+  X,
+  History,
+  Sparkles,
+  Phone,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -42,6 +47,9 @@ import CategoryManager from './CategoryManager';
 import ProductForm from './ProductForm';
 import AdminManager from './AdminManager';
 import SupplierModal from './SupplierModal';
+import StockChart from './StockChart';
+import StockMovementLogModal from './StockMovementLogModal';
+import TestDataManager from './TestDataManager';
 
 export default function Dashboard() {
   const { user, userRights, logout } = useFirebase();
@@ -54,12 +62,66 @@ export default function Dashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [stockFilter, setStockFilter] = useState<'all' | 'alert' | 'ok'>('all');
+  const [suppliersList, setSuppliersList] = useState<ProductSupplier[]>([]);
+  const [selectedSupplierFilter, setSelectedSupplierFilter] = useState<string>('all');
+
+  // Staff on duty widget local states
+  const [copiedStaffId, setCopiedStaffId] = useState<string | null>(null);
+  const [personnelSearch, setPersonnelSearch] = useState('');
+
+  // Helper to extract and filter staff members from active categories
+  const getStaffList = () => {
+    let list: Array<{ id: string; name: string; role: string; phone: string; categoryName: string; categoryId: string }> = [];
+    
+    categories.forEach(cat => {
+      if (cat.staff && cat.staff.length > 0) {
+        cat.staff.forEach(member => {
+          list.push({
+            id: member.id,
+            name: member.name,
+            role: member.role,
+            phone: member.phone,
+            categoryName: cat.name,
+            categoryId: cat.id
+          });
+        });
+      }
+    });
+
+    // Filter by selected category IF one is focused
+    if (selectedCategory !== 'all') {
+      list = list.filter(item => item.categoryName === selectedCategory);
+    }
+
+    // Filter by search string
+    if (personnelSearch.trim() !== '') {
+      const search = personnelSearch.toLowerCase();
+      list = list.filter(item => 
+        item.name.toLowerCase().includes(search) || 
+        item.role.toLowerCase().includes(search) ||
+        item.phone.includes(search) ||
+        item.categoryName.toLowerCase().includes(search)
+      );
+    }
+
+    return list;
+  };
+
+  const currentStaffList = getStaffList();
+
+  const handleCopyPhone = (staffId: string, phone: string) => {
+    navigator.clipboard.writeText(phone);
+    setCopiedStaffId(staffId);
+    setTimeout(() => setCopiedStaffId(null), 1800);
+  };
 
   // Modals view controllers
   const [showCatModal, setShowCatModal] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [activeProductEdit, setActiveProductEdit] = useState<Product | null | undefined>(undefined); // undefined = closed, null = create, object = edit
   const [selectedSupplierProduct, setSelectedSupplierProduct] = useState<Product | null>(null);
+  const [showMovementsModal, setShowMovementsModal] = useState(false);
+  const [showTestDataModal, setShowTestDataModal] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -100,6 +162,28 @@ export default function Dashboard() {
     return () => unsubscribeProds();
   }, []);
 
+  // Real-time synchronization for Suppliers (Super Admin exclusive)
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      setSuppliersList([]);
+      setSelectedSupplierFilter('all');
+      return;
+    }
+
+    const q = query(collection(db, 'suppliers'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const sups: ProductSupplier[] = [];
+      snapshot.forEach(doc => {
+        sups.push({ ...doc.data() } as ProductSupplier);
+      });
+      setSuppliersList(sups);
+    }, (error) => {
+      console.error("Error subscribing to suppliers collection:", error);
+    });
+
+    return () => unsubscribe();
+  }, [isSuperAdmin]);
+
   // Check category-specific write authorization helper
   const canEditCategory = (catName: string) => {
     if (isSuperAdmin) return true;
@@ -111,12 +195,29 @@ export default function Dashboard() {
     if (!canEditCategory(prod.category)) return;
 
     const newQty = Math.max(0, prod.quantity + offset);
+    if (newQty === prod.quantity) return; // No change if attempting to subtract below 0
+
     try {
       const productRef = doc(db, 'products', prod.id);
       await setDoc(productRef, {
         ...prod,
         quantity: newQty,
         updatedAt: serverTimestamp()
+      });
+
+      // Write Stock Movement Log
+      const movementId = 'move-' + Math.random().toString(36).substring(2, 11);
+      const movementRef = doc(db, 'stock_movements', movementId);
+      await setDoc(movementRef, {
+        id: movementId,
+        productId: prod.id,
+        productName: prod.name,
+        category: prod.category,
+        type: 'adjustment',
+        difference: offset,
+        finalQuantity: newQty,
+        userEmail: user?.email || 'Inconnu',
+        createdAt: serverTimestamp(),
       });
     } catch (error) {
       console.error('Error updating stock level:', error);
@@ -137,6 +238,21 @@ export default function Dashboard() {
       if (isSuperAdmin) {
         await deleteDoc(doc(db, 'suppliers', prod.id));
       }
+
+      // Write Stock Movement Log of type 'deletion'
+      const movementId = 'move-' + Math.random().toString(36).substring(2, 11);
+      const movementRef = doc(db, 'stock_movements', movementId);
+      await setDoc(movementRef, {
+        id: movementId,
+        productId: prod.id,
+        productName: prod.name,
+        category: prod.category,
+        type: 'deletion',
+        difference: prod.quantity,
+        finalQuantity: 0,
+        userEmail: user?.email || 'Inconnu',
+        createdAt: serverTimestamp(),
+      });
     } catch (error) {
       console.error('Error deleting product', error);
     }
@@ -144,6 +260,13 @@ export default function Dashboard() {
 
   // Filter computations
   const lowStockProducts = products.filter(p => p.quantity <= p.minQuantity);
+
+  // Extract unique supplier names across all products (Super Admin only Check)
+  const uniqueSuppliers = Array.from(
+    new Set(
+      suppliersList.flatMap(s => s.contacts.map(c => c.name.trim()).filter(name => name !== ''))
+    )
+  ).sort();
   
   const filteredProducts = products.filter(prod => {
     // Category match
@@ -161,7 +284,14 @@ export default function Dashboard() {
       statusMatch = prod.quantity > prod.minQuantity;
     }
 
-    return categoryMatch && searchMatch && statusMatch;
+    // Supplier filter match (Super Admin exclusive)
+    let supplierMatch = true;
+    if (isSuperAdmin && selectedSupplierFilter !== 'all') {
+      const prodSupplier = suppliersList.find(s => s.productId === prod.id);
+      supplierMatch = prodSupplier?.contacts.some(c => c.name.trim() === selectedSupplierFilter) || false;
+    }
+
+    return categoryMatch && searchMatch && statusMatch && supplierMatch;
   });
 
   return (
@@ -281,22 +411,42 @@ export default function Dashboard() {
                 {/* Category manager */}
                 <button
                   onClick={() => { setShowCatModal(true); setIsMobileSidebarOpen(false); }}
-                  className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
+                  className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2 animate-pulse"
                 >
                   <FolderEdit size={14} className="text-clinic-green" />
-                  <span>Gérer les catégories</span>
+                  <span>Catégories & Personnels de garde</span>
                 </button>
 
                 {/* Admins manager (Super admin only) */}
                 {isSuperAdmin && (
-                  <button
-                    onClick={() => { setShowAdminModal(true); setIsMobileSidebarOpen(false); }}
-                    className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
-                    id="open-admin-manager"
-                  >
-                    <Users size={14} className="text-clinic-green" />
-                    <span>Inscriptions des Admins</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setShowAdminModal(true); setIsMobileSidebarOpen(false); }}
+                      className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
+                      id="open-admin-manager"
+                    >
+                      <Users size={14} className="text-clinic-green" />
+                      <span>Inscriptions des Admins</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setShowMovementsModal(true); setIsMobileSidebarOpen(false); }}
+                      className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
+                      id="open-movements-log"
+                    >
+                      <History size={14} className="text-clinic-green" />
+                      <span>Journal des flux de stock</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setShowTestDataModal(true); setIsMobileSidebarOpen(false); }}
+                      className="w-full text-left py-1.5 px-3 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer transition flex items-center gap-2"
+                      id="open-test-data-generator"
+                    >
+                      <Sparkles size={14} className="text-amber-500" />
+                      <span>Données de test / Simulation</span>
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -400,6 +550,163 @@ export default function Dashboard() {
           </motion.div>
         )}
 
+        {/* Graphs & On-duty Personnel Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <StockChart products={products} categories={categories} />
+          </div>
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-full flex flex-col justify-between" id="personnel-garde-widget">
+              <div>
+                {/* Panel Header */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-emerald-50 text-clinic-green rounded-lg">
+                      <Users size={16} />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Équipes de Garde</h3>
+                      <p className="text-[10px] text-slate-400">Services d'astreinte & référents cliniques</p>
+                    </div>
+                  </div>
+                  
+                  {/* Inline button to open categories/guard manager */}
+                  <button
+                    onClick={() => setShowCatModal(true)}
+                    className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold px-2 py-1 rounded-lg transition shrink-0 cursor-pointer"
+                    title="Configurer ou ajouter des personnels à l'équipe"
+                  >
+                    Gérer
+                  </button>
+                </div>
+
+                {/* Local search within personnel */}
+                <div className="relative mb-3">
+                  <Search className="absolute left-2.5 top-2 text-slate-400" size={12} />
+                  <input
+                    type="text"
+                    placeholder="Chercher un personnel, poste..."
+                    value={personnelSearch}
+                    onChange={(e) => setPersonnelSearch(e.target.value)}
+                    className="w-full text-[11px] bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-2.5 py-1.5 focus:ring-1 focus:ring-clinic-blue focus:bg-white focus:outline-none"
+                  />
+                  {personnelSearch && (
+                    <button 
+                      onClick={() => setPersonnelSearch('')}
+                      className="absolute right-2 top-2 text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter indicator */}
+                {selectedCategory !== 'all' && (
+                  <div className="mb-3 flex items-center justify-between bg-blue-50/50 border border-clinic-blue/10 rounded-lg py-1 px-2 text-[10px]">
+                    <span className="text-clinic-blue font-semibold truncate">
+                      Secteur sélectionné : <strong>{selectedCategory}</strong>
+                    </span>
+                    <button 
+                      onClick={() => setSelectedCategory('all')}
+                      className="text-slate-400 hover:text-rose-600 font-bold ml-1 flex items-center gap-0.5 animate-pulse shrink-0 bg-white rounded px-1 border border-slate-200"
+                      title="Afficher tous les secteurs d'astreinte"
+                    >
+                      <X size={10} /> Tout voir
+                    </button>
+                  </div>
+                )}
+
+                {/* Scrollable list container */}
+                <div className="space-y-2 max-h-[195px] overflow-y-auto pr-1">
+                  {currentStaffList.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 space-y-2">
+                      <p className="text-[11px] italic">Aucun personnel de garde trouvé.</p>
+                      {categories.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setShowCatModal(true);
+                          }}
+                          className="text-[10px] text-clinic-blue hover:underline bg-clinic-light-blue px-2.5 py-1 rounded-md font-semibold"
+                        >
+                          + Configurer l'équipe de garde
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    currentStaffList.map((item) => (
+                      <div 
+                        key={item.id}
+                        className="p-2 border border-slate-100 rounded-xl hover:bg-slate-50/80 hover:border-slate-200 transition flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2 max-w-[70%] min-w-0">
+                          {/* Round colored initial fallback circle */}
+                          <div className="w-7 h-7 rounded-full bg-clinic-light-blue font-bold text-[10px] text-clinic-blue flex items-center justify-center shrink-0">
+                            {item.name.substring(0, 1).toUpperCase()}
+                          </div>
+                          
+                          <div className="min-w-0">
+                            <span className="font-bold text-slate-800 block truncate text-[11px] leading-tight" title={item.name}>
+                              {item.name}
+                            </span>
+                            
+                            <div className="flex items-center flex-wrap gap-1 mt-0.5">
+                              <span className="text-[9.5px] text-slate-500 font-medium truncate" title={item.role}>
+                                {item.role}
+                              </span>
+                              
+                              {/* Display Sector Category tag in general view */}
+                              {selectedCategory === 'all' && (
+                                <button
+                                  onClick={() => setSelectedCategory(item.categoryName)}
+                                  className="text-[8px] bg-slate-100 border border-slate-200 hover:bg-clinic-blue hover:text-white rounded px-1 transition text-slate-500 font-semibold truncate shrink-0"
+                                  title={`Filtrer par secteur ${item.categoryName}`}
+                                >
+                                  {item.categoryName}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Dial & Copy Tools */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <a
+                            href={`tel:${item.phone}`}
+                            className="bg-emerald-50 text-clinic-green border border-emerald-100/30 rounded-lg p-1.5 hover:bg-clinic-green hover:text-white transition"
+                            title={`Appeler ${item.name} au ${item.phone}`}
+                          >
+                            <Phone size={11} />
+                          </a>
+                          
+                          <button
+                            onClick={() => handleCopyPhone(item.id, item.phone)}
+                            className={`border rounded-lg p-1.5 transition cursor-pointer ${
+                              copiedStaffId === item.id 
+                                ? 'bg-emerald-50 border-emerald-300 text-clinic-green' 
+                                : 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-400 hover:text-slate-700'
+                            }`}
+                            title="Copier le numéro de téléphone"
+                          >
+                            {copiedStaffId === item.id ? <Check size={11} /> : <Copy size={11} />}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Informative footer */}
+              <div className="border-t border-slate-100 pt-3 flex items-center justify-between text-[10px] text-slate-400">
+                <span className="leading-snug">Roster de garde de la clinique</span>
+                <span className="font-semibold text-rose-500 flex items-center gap-0.5 animate-pulse">
+                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span> Astreinte active
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Filter controls, dynamic search, and product lists container */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           
@@ -443,6 +750,53 @@ export default function Dashboard() {
               />
             </div>
           </div>
+
+          {/* Quick supplier filters (Super Admin only) */}
+          {isSuperAdmin && uniqueSuppliers.length > 0 && (
+            <div className="px-4 py-3 bg-[#eef5fc]/20 border-b border-slate-100 flex flex-col md:flex-row md:items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-clinic-blue font-bold shrink-0 min-w-[170px]">
+                <span className="w-2 h-2 rounded-full bg-clinic-blue animate-pulse shrink-0"></span>
+                <span>Filtre par Fournisseur :</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                <button
+                  onClick={() => setSelectedSupplierFilter('all')}
+                  className={`py-1 px-3 rounded-lg text-[10.5px] font-bold transition cursor-pointer select-none border border-transparent ${
+                    selectedSupplierFilter === 'all'
+                      ? 'bg-clinic-blue text-white shadow-sm'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  Tous ({products.length})
+                </button>
+                {uniqueSuppliers.map((supName) => {
+                  const count = products.filter(prod => 
+                    suppliersList.find(s => s.productId === prod.id)?.contacts.some(c => c.name.trim() === supName)
+                  ).length;
+                  return (
+                    <button
+                      key={supName}
+                      onClick={() => setSelectedSupplierFilter(supName)}
+                      className={`py-1 px-3 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1.5 border cursor-pointer select-none ${
+                        selectedSupplierFilter === supName
+                          ? 'bg-clinic-blue text-white border-transparent shadow-sm'
+                          : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+                      }`}
+                    >
+                      <span className="truncate max-w-[140px]">{supName}</span>
+                      <span className={`text-[9.5px] px-1.5 py-0.5 rounded-full font-bold leading-none ${
+                        selectedSupplierFilter === supName 
+                          ? 'bg-blue-800 text-blue-100' 
+                          : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Interactive Lists Board */}
           {loading ? (
@@ -491,9 +845,13 @@ export default function Dashboard() {
 
                         {/* Category */}
                         <td className="py-3.5 px-4 font-semibold">
-                          <span className="text-[10px] bg-slate-100 text-slate-600 rounded-md px-2 py-0.5 border border-slate-200/50">
+                          <button
+                            onClick={() => setSelectedCategory(prod.category)}
+                            className="text-[10px] bg-[#eef5fc] text-clinic-blue hover:bg-clinic-blue hover:text-white rounded-md px-2.5 py-1 border border-clinic-blue/10 font-extrabold transition cursor-pointer text-left focus:outline-none"
+                            title="Filtrer sur ce secteur et afficher son équipe de garde"
+                          >
                             {prod.category}
-                          </span>
+                          </button>
                         </td>
 
                         {/* Quantity controls */}
@@ -549,11 +907,23 @@ export default function Dashboard() {
 
                         {/* Action buttons */}
                         <td className="py-3.5 px-5 text-right space-x-1.5 shrink-0">
+                          {/* Navigate/Filter to Personnel de garde */}
+                          <button
+                            onClick={() => {
+                              setSelectedCategory(prod.category);
+                              document.getElementById('personnel-garde-widget')?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className="text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-lg transition cursor-pointer inline-flex items-center"
+                            title={`Voir le personnel de garde (astreinte) de la catégorie ${prod.category}`}
+                          >
+                            <Users size={14} />
+                          </button>
+
                           {/* Suppliers (Super Admin exclusive visibility) */}
                           {isSuperAdmin && (
                             <button
                               onClick={() => setSelectedSupplierProduct(prod)}
-                              className="text-clinic-green hover:bg-clinic-green-light p-1.5 rounded-lg transition cursor-pointer"
+                              className="text-clinic-green hover:bg-clinic-green-light p-1.5 rounded-lg transition cursor-pointer inline-flex items-center"
                               title="Voir ou appeler les fournisseurs sécurisés"
                             >
                               <PhoneCall size={14} />
@@ -626,6 +996,21 @@ export default function Dashboard() {
           <SupplierModal 
             product={selectedSupplierProduct} 
             onClose={() => setSelectedSupplierProduct(null)} 
+          />
+        )}
+
+        {/* Audit Movements log Modal */}
+        {showMovementsModal && isSuperAdmin && (
+          <StockMovementLogModal 
+            categories={categories}
+            onClose={() => setShowMovementsModal(false)}
+          />
+        )}
+
+        {/* Test Data configuration Modal */}
+        {showTestDataModal && isSuperAdmin && (
+          <TestDataManager 
+            onClose={() => setShowTestDataModal(false)}
           />
         )}
       </AnimatePresence>

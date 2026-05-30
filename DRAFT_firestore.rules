@@ -53,10 +53,11 @@ service cloud.firestore {
 
     function isValidCategory(data) {
       return data.keys().hasAll(['id', 'name', 'createdAt']) &&
-             data.keys().size() == 3 &&
+             (data.keys().size() == 3 || (data.keys().size() == 4 && data.keys().hasAll(['staff']))) &&
              data.id is string && data.id.size() <= 128 &&
              data.name is string && data.name.size() <= 100 && data.name.size() > 0 &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             (!data.keys().hasAll(['staff']) || (data.staff is list && data.staff.size() <= 50));
     }
 
     function isValidProduct(data) {
@@ -77,6 +78,20 @@ service cloud.firestore {
              data.productId is string && data.productId.size() <= 128 &&
              data.contacts is list && data.contacts.size() <= 20 &&
              data.updatedAt is timestamp;
+    }
+
+    function isValidStockMovement(data) {
+      return data.keys().hasAll(['id', 'productId', 'productName', 'category', 'type', 'difference', 'finalQuantity', 'userEmail', 'createdAt']) &&
+             data.keys().size() == 9 &&
+             data.id is string && data.id.size() <= 128 &&
+             data.productId is string && data.productId.size() <= 128 &&
+             data.productName is string && data.productName.size() <= 150 && data.productName.size() > 0 &&
+             data.category is string && data.category.size() <= 128 &&
+             (data.type == 'creation' || data.type == 'adjustment' || data.type == 'deletion') &&
+             (data.difference is int || data.difference is float) &&
+             data.finalQuantity is int && data.finalQuantity >= 0 &&
+             data.userEmail is string && data.userEmail.size() <= 150 &&
+             data.createdAt is timestamp;
     }
 
     // Rules for Category collection
@@ -122,6 +137,14 @@ service cloud.firestore {
       allow create: if isSuperAdmin() && isValidUser(incoming()) && incoming().createdAt == request.time && isValidId(userId);
       allow update: if isSuperAdmin() && isValidUser(incoming()) && incoming().createdAt == existing().createdAt && isValidId(userId);
       allow delete: if isSuperAdmin();
+    }
+    
+    // Rules for Stock Movements collection
+    match /stock_movements/{movementId} {
+      allow get: if isSuperAdmin() && isValidId(movementId);
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn() && isValidStockMovement(incoming()) && incoming().createdAt == request.time && isValidId(movementId);
+      allow update, delete: if false; // Immutable audit logs
     }
   }
 }
