@@ -1,10 +1,10 @@
 {
-  "projectId": "active-presence-n4jp1",
-  "appId": "1:408976389525:web:3f873f153ba562277bf29c",
-  "apiKey": "AIzaSyBz2I_FAcgvTxO-whlDMuus-POr1ORHFFc",
-  "authDomain": "active-presence-n4jp1.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-a6623cb9-6594-4910-8e0c-19e598f8af48",
-  "storageBucket": "active-presence-n4jp1.firebasestorage.app",
-  "messagingSenderId": "408976389525",
+  "projectId": "gestion-stock-avicenne",
+  "appId": "1:258084524314:web:4f9dbb8dc668556fdedca3",
+  "apiKey": "AIzaSyAJ1sIUhH2i0_xU0eFKvZufD-6oeUlmQJE",
+  "authDomain": "gestion-stock-avicenne.firebaseapp.com",
+  "storageBucket": "gestion-stock-avicenne.firebasestorage.app",
+  "messagingSenderId": "258084524314",
+  "firestoreDatabaseId": "(default)",
   "measurementId": ""
 }
