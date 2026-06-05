@@ -140,7 +140,7 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error('Core Google Login failed: ', error);
-      alert("La connexion par Google a échoué. Utilisez la simulation d'accès pour tester l'application.");
+      throw error;
     }
   };
 

@@ -11,13 +11,66 @@ import { motion } from 'motion/react';
 export default function LoginScreen() {
   const { loginWithGoogle, simulateUser } = useFirebase();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<{ code: string; message: string; title: string; steps: string[] } | null>(null);
 
   const handleGoogleLogin = async () => {
     try {
       setErrorMsg(null);
+      setAuthError(null);
       await loginWithGoogle();
     } catch (e: any) {
-      setErrorMsg(e.message || "Erreur lors de la connexion");
+      console.error("Login component caught error:", e);
+      const code = e?.code || "";
+      const message = e?.message || "";
+      
+      let title = "Erreur de connexion";
+      let displayMessage = "La connexion Google n'a pas pu être établie.";
+      let steps: string[] = [];
+
+      if (code === 'auth/unauthorized-domain') {
+        title = "Domaine d'hébergement non autorisé";
+        displayMessage = "Le domaine actuel n'est pas autorisé dans la configuration de votre projet Firebase Authentication.";
+        steps = [
+          "Connectez-vous à la Console Firebase de VOTRE projet.",
+          "Allez dans Authentication > onglet Settings (Paramètres) > Domaines autorisés.",
+          "Ajoutez le domaine de votre application Netlify (ex: gestionstockavicenne.netlify.app).",
+          "Revenez sur votre application, actualisez la page et réessayez !"
+        ];
+      } else if (code === 'auth/operation-not-allowed') {
+        title = "Connexion Google non activée";
+        displayMessage = "La méthode de connexion par Google n'est pas activée sur votre console Firebase.";
+        steps = [
+          "Connectez-vous à la Console Firebase.",
+          "Allez dans Authentication > onglet Sign-in method.",
+          "Ajoutez ou activez le fournisseur 'Google', configurez l'adresse email de support et enregistrez.",
+          "Actualisez cette page et réessayez de vous connecter."
+        ];
+      } else if (code === 'auth/popup-blocked') {
+        title = "Fenêtre pop-up bloquée";
+        displayMessage = "Votre navigateur a bloqué l'affichage de la fenêtre de connexion Google.";
+        steps = [
+          "Regardez dans la barre d'adresse de votre navigateur l'icône de pop-up bloquée.",
+          "Sélectionnez 'Toujours autoriser les fenêtres pop-up et les redirections pour ce site'.",
+          "Cliquez à nouveau sur le bouton de connexion Google."
+        ];
+      } else if (code === 'auth/popup-closed-by-user') {
+        title = "Connexion annulée";
+        displayMessage = "La fenêtre de connexion Google a été fermée avant la fin du processus.";
+        steps = [
+          "Cliquez sur le bouton pour rouvrir la connexion.",
+          "Sélectionnez votre compte Google et allez jusqu'au bout de l'authentification."
+        ];
+      } else {
+        displayMessage = message || "Une erreur inattendue s'est produite lors de la connexion.";
+      }
+
+      setAuthError({
+        code,
+        message: displayMessage,
+        title,
+        steps
+      });
+      setErrorMsg(message || "Erreur de connexion");
     }
   };
 
@@ -143,9 +196,30 @@ export default function LoginScreen() {
               </svg>
               Se connecter avec Google Auth
             </button>
-            {errorMsg && (
+            {authError ? (
+              <div className="mt-4 p-4 bg-rose-50 rounded-xl border border-rose-100 text-slate-700 text-xs">
+                <div className="flex items-center gap-2 text-rose-600 font-semibold mb-1">
+                  <AlertCircle size={16} />
+                  <span>{authError.title}</span>
+                </div>
+                <p className="text-slate-600 mb-2 leading-relaxed">{authError.message}</p>
+                {authError.steps.length > 0 && (
+                  <div className="mt-2 pl-4 border-l-2 border-rose-200 space-y-1.5">
+                    {authError.steps.map((step, idx) => (
+                      <div key={idx} className="flex gap-1.5 items-start text-left">
+                        <span className="font-semibold text-rose-500 font-mono text-[10px] bg-rose-100 rounded-full w-4 h-4 shrink-0 flex items-center justify-center mt-0.5">{idx + 1}</span>
+                        <span className="text-slate-600 font-medium leading-tight">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 text-[10px] text-slate-400 font-mono uppercase bg-rose-100/30 p-1.5 rounded text-center">
+                  Code : {authError.code || 'unknown'}
+                </div>
+              </div>
+            ) : errorMsg ? (
               <p className="text-xs text-rose-500 text-center mt-2 font-medium">{errorMsg}</p>
-            )}
+            ) : null}
           </div>
         </motion.div>
 
