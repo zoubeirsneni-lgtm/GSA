@@ -68,7 +68,7 @@ export default function LoginScreen() {
           <Building2 size={40} className="stroke-2 text-clinic-blue" />
         </div>
         <h1 className="text-3xl font-bold text-clinic-dark tracking-tight">
-          Medizco Stock <span className="text-clinic-green font-semibold">T-R</span>
+          Avicenne Stock <span className="text-clinic-green font-semibold">T-R</span>
         </h1>
         <p className="text-sm text-slate-500 mt-2 max-w-sm">
           Système de gestion de stock clinique universel en temps réel avec alertes automatiques et gestion des droits d'accès.
@@ -199,7 +199,7 @@ export default function LoginScreen() {
 
       {/* Footer copyright */}
       <p className="text-xs text-slate-400">
-        © 2026 Clinique Medizco. Tous droits réservés.
+        © 2026 Clinique Avicenne. Tous droits réservés.
       </p>
     </div>
   );

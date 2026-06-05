@@ -451,7 +451,7 @@ export default function Dashboard() {
               <ClipboardList size={24} className="stroke-2 text-clinic-green" />
             </div>
             <div>
-              <span className="font-bold text-sm tracking-tight block text-white leading-none">Medizco Clinic</span>
+              <span className="font-bold text-sm tracking-tight block text-white leading-none">Clinique Avicenne</span>
               <span className="text-[10px] font-semibold text-slate-400 font-mono">Gestion de Stock</span>
             </div>
           </div>
