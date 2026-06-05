@@ -424,17 +424,28 @@ export default function Dashboard() {
       {/* Mobile Top Header Bar */}
       <div className="md:hidden bg-clinic-dark text-white p-4 flex items-center justify-between border-b border-slate-800">
         <div className="flex items-center gap-2">
-          <span className="font-bold tracking-tight text-base flex items-center gap-1.5">
-            <ClipboardList className="text-clinic-green stroke-2" size={20} />
+          <span className="font-bold tracking-tight text-sm flex items-center gap-1.5">
+            <ClipboardList className="text-clinic-green stroke-2" size={18} />
             Clinic-Stock <span className="text-clinic-green text-xs font-mono">T-R</span>
           </span>
         </div>
-        <button 
-          onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
-          className="text-slate-300 hover:text-white p-1 rounded-lg focus:outline-none"
-        >
-          {isMobileSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={logout}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-900/60 hover:bg-rose-900 text-rose-100 hover:text-white rounded-lg text-[11px] font-bold transition duration-200 cursor-pointer"
+            title="Se déconnecter"
+          >
+            <LogOut size={13} />
+            <span>Déconnexion</span>
+          </button>
+          
+          <button 
+            onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+            className="text-slate-300 hover:text-white p-1 rounded-lg focus:outline-none cursor-pointer"
+          >
+            {isMobileSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar Panel */}
@@ -497,6 +508,16 @@ export default function Dashboard() {
                 Simulé
               </span>
             )}
+
+            {/* Quick Logout inside the card */}
+            <div className="mt-3.5 pt-2.5 border-t border-white/5">
+              <button
+                onClick={logout}
+                className="w-full py-1.5 px-3 bg-rose-950/30 hover:bg-rose-900/40 text-rose-300 hover:text-white border border-rose-900/20 hover:border-rose-800/40 rounded-lg text-[10px] uppercase font-mono tracking-wider font-bold flex items-center justify-center gap-2 cursor-pointer transition-all duration-200"
+              >
+                <LogOut size={12} /> Se déconnecter
+              </button>
+            </div>
           </div>
 
           {/* Navigation Category Filters */}
